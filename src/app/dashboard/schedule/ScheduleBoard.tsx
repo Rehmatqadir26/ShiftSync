@@ -1,0 +1,245 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+type Loc = { id: string; name: string; code: string; timezone: string };
+type ShiftRow = {
+  id: string;
+  headcount: number;
+  notes: string | null;
+  displayStart: string | null;
+  displayEnd: string | null;
+  published: boolean;
+  location: Loc;
+  requiredSkill: { name: string };
+  assignments: { id: string; user: { id: string; name: string } }[];
+};
+
+type StaffRow = { id: string; name: string };
+
+export function ScheduleBoard() {
+  const [locations, setLocations] = useState<Loc[]>([]);
+  const [locId, setLocId] = useState("");
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
+  const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [role, setRole] = useState<string>("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [violations, setViolations] = useState<unknown[]>([]);
+  const [suggestions, setSuggestions] = useState<{ id: string; name: string }[]>([]);
+  const [pickShift, setPickShift] = useState<string | null>(null);
+  const [pickUser, setPickUser] = useState("");
+
+  const load = useCallback(async () => {
+    const me = await fetch("/api/auth/me").then((r) => r.json());
+    if (!me.user) return;
+    setRole(me.user.role);
+    const ls = await fetch("/api/locations").then((r) => r.json());
+    setLocations(ls.locations ?? []);
+    const first = ls.locations?.[0]?.id ?? "";
+    setLocId((prev) => prev || first);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!locId) return;
+    void fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`)
+      .then((r) => r.json())
+      .then((d) => setShifts(d.shifts ?? []));
+    void fetch(`/api/staff?locationId=${encodeURIComponent(locId)}`)
+      .then((r) => (r.ok ? r.json() : { staff: [] }))
+      .then((d) => setStaff(d.staff ?? []))
+      .catch(() => setStaff([]));
+  }, [locId]);
+
+  async function assign() {
+    if (!pickShift || !pickUser) return;
+    setMessage(null);
+    setViolations([]);
+    setSuggestions([]);
+    const res = await fetch(`/api/shifts/${pickShift}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: pickUser }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error ?? "Request failed");
+      setViolations(data.violations ?? []);
+      setSuggestions(data.suggestions ?? []);
+      return;
+    }
+    setMessage("Assigned");
+    setPickShift(null);
+    setPickUser("");
+    const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
+    setShifts(d.shifts ?? []);
+  }
+
+  async function publishWeek() {
+    const ref = shifts[0]?.displayStart ?? new Date().toISOString();
+    const res = await fetch(`/api/locations/${locId}/publish-week`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referenceUtc: ref }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) setMessage(data.error ?? "Publish failed");
+    else setMessage("Published week");
+  }
+
+  const canManage = role === "ADMIN" || role === "MANAGER";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <label className="block text-xs text-zinc-500">Location</label>
+          <select
+            className="mt-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
+            value={locId}
+            onChange={(e) => setLocId(e.target.value)}
+          >
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} ({l.code})
+              </option>
+            ))}
+          </select>
+        </div>
+        {canManage ? (
+          <button
+            type="button"
+            onClick={() => void publishWeek()}
+            className="rounded-lg border border-amber-500/50 px-3 py-2 text-sm text-amber-200 hover:bg-amber-500/10"
+          >
+            Publish this week
+          </button>
+        ) : null}
+      </div>
+
+      {message ? <p className="text-sm text-amber-200/90">{message}</p> : null}
+      {violations.length > 0 ? (
+        <div className="rounded-lg border border-red-500/40 bg-red-950/40 p-4 text-sm">
+          <p className="font-medium text-red-200">Rules blocked the assign</p>
+          <ul className="mt-2 list-inside list-disc text-red-100/90">
+            {(violations as { message?: string }[]).map((v, i) => (
+              <li key={i}>{v.message ?? JSON.stringify(v)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {suggestions.length > 0 ? (
+        <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4 text-sm">
+          <p className="font-medium text-zinc-200">People who do fit</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {suggestions.map((s) => (
+              <li key={s.id} className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-200">
+                {s.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-500">
+            <tr>
+              <th className="px-4 py-3">When (local)</th>
+              <th className="px-4 py-3">Skill</th>
+              <th className="px-4 py-3">Staff</th>
+              <th className="px-4 py-3">Published</th>
+              {canManage ? <th className="px-4 py-3">Assign</th> : null}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800">
+            {shifts.map((s) => (
+              <tr key={s.id} className="hover:bg-zinc-900/40">
+                <td className="px-4 py-3 text-zinc-200">
+                  <div>{s.displayStart ?? "—"}</div>
+                  <div className="text-xs text-zinc-500">to {s.displayEnd ?? "—"}</div>
+                </td>
+                <td className="px-4 py-3 text-zinc-300">{s.requiredSkill.name}</td>
+                <td className="px-4 py-3 text-zinc-300">
+                  {s.assignments.length === 0 ? (
+                    <span className="text-zinc-600">—</span>
+                  ) : (
+                    s.assignments.map((a) => (
+                      <span key={a.id} className="mr-2 inline-block rounded bg-zinc-800 px-2 py-0.5 text-xs">
+                        {a.user.name}
+                      </span>
+                    ))
+                  )}
+                  <span className="ml-2 text-xs text-zinc-600">
+                    {s.assignments.length}/{s.headcount}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-zinc-400">{s.published ? "yes" : "no"}</td>
+                {canManage ? (
+                  <td className="px-4 py-3">
+                    {s.assignments.length >= s.headcount ? (
+                      <span className="text-xs text-zinc-600">Full</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-xs text-amber-300 hover:underline"
+                        onClick={() => {
+                          setPickShift(s.id);
+                          setPickUser("");
+                        }}
+                        disabled={!canManage}
+                      >
+                        Add
+                      </button>
+                    )}
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {pickShift && canManage ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-white">Assign staff</h3>
+            <p className="mt-1 text-xs text-zinc-500">Runs every scheduling rule before saving.</p>
+            <select
+              className="mt-4 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+              value={pickUser}
+              onChange={(e) => setPickUser(e.target.value)}
+            >
+              <option value="">Select…</option>
+              {staff.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+                onClick={() => setPickShift(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-zinc-900 disabled:opacity-50"
+                disabled={!pickUser}
+                onClick={() => void assign()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
