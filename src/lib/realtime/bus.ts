@@ -7,7 +7,7 @@ type BusPayload = {
   payload?: unknown;
 };
 
-const globalKey = "__coastalRealtimeBus";
+const globalKey = "__shiftSyncRealtimeBus";
 const g = globalThis as unknown as Record<string, EventEmitter>;
 
 if (!(globalKey in g)) {

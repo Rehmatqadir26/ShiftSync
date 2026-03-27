@@ -1,14 +1,27 @@
-# Coastal Shifts
+# ShiftSync
 
-Take-home: web scheduling for the fictional **Coastal Eats** restaurant group (four sites, two US time zones). Stack: **Next.js 15**, **Prisma 5**, **PostgreSQL**, **Luxon** for time zones.
+Web scheduling for the fictional **Coastal Eats** restaurant group (four sites, two US time zones). Take-home stack: **Next.js 15**, **Prisma 5**, **PostgreSQL**, **Luxon** for time zones.
+
+Repository: [github.com/Rehmatqadir26/ShiftSync](https://github.com/Rehmatqadir26/ShiftSync)
 
 ## Quick start
 
-1. Copy env: `cp .env.example .env` and set `SESSION_SECRET` (16+ characters).
-2. Start Postgres (port **5433** to avoid clashing with a local server):
+1. **PostgreSQL** — use your existing install. Create a database (example name `shiftsync`):
 
    ```bash
-   docker compose up -d
+   createdb shiftsync
+   ```
+
+   Or with `psql`:
+
+   ```sql
+   CREATE DATABASE shiftsync;
+   ```
+
+2. Copy env and set **`DATABASE_URL`** to match your user, password, host, port, and database name. Copy `SESSION_SECRET` from the example and replace with 16+ random characters. Keep `.env` in the **project root** so `npm run db:seed` can read it (Next.js and the seed script both use it).
+
+   ```bash
+   cp .env.example .env
    ```
 
 3. Migrate and seed:
@@ -61,4 +74,4 @@ Password for **every** seeded user: `password`
 
 ## Deploy
 
-Set `DATABASE_URL` and `SESSION_SECRET` on your host. Run `prisma migrate deploy` and `npm run build && npm start`. Use a public Postgres (Neon, RDS, etc.) when Docker is not available.
+Set `DATABASE_URL` and `SESSION_SECRET` on your host. Run `prisma migrate deploy` and `npm run build && npm start`. Use a managed Postgres (Neon, RDS, etc.) in production if you prefer.

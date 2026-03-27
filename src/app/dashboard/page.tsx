@@ -12,7 +12,7 @@ export default async function DashboardPage() {
       <header className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <div>
-            <p className="text-xs uppercase tracking-widest text-amber-400/90">Coastal Eats</p>
+            <p className="text-xs uppercase tracking-widest text-amber-400/90">ShiftSync</p>
             <h1 className="text-lg font-semibold">Hi, {session.name}</h1>
             <p className="text-xs text-zinc-500">
               {session.role.toLowerCase()} · {session.email}

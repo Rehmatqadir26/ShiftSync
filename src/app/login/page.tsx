@@ -36,9 +36,9 @@ export default function LoginPage() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-6">
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-10 shadow-xl">
         <div>
-          <p className="text-sm uppercase tracking-widest text-amber-400/90">Coastal Eats</p>
+          <p className="text-sm uppercase tracking-widest text-amber-400/90">ShiftSync</p>
           <h1 className="mt-2 text-2xl font-semibold text-white">Sign in</h1>
-          <p className="mt-1 text-sm text-zinc-400">Shift scheduling for all locations</p>
+          <p className="mt-1 text-sm text-zinc-400">Restaurant workforce scheduling</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
