@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum CoverageKind {
+  SWAP
+  DROP
+}
+
+enum CoverageStatus {
+  AWAITING_PEER
+  AWAITING_MANAGER
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum NotificationType {
+  SHIFT_ASSIGNED
+  SHIFT_CHANGED
+  SCHEDULE_PUBLISHED
+  SWAP_UPDATE
+  MANAGER_APPROVAL_NEEDED
+  OT_WARNING
+  AVAILABILITY_CHANGED
+  REQUEST_CANCELLED_SHIFT_EDITED
+  ASSIGNMENT_CONFLICT
+  GENERIC
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  createdAt    DateTime @default(now())
+
+  staffProfile StaffProfile?
+
+  managerLocations ManagerLocation[]
+  auditLogs        AuditLog[]        @relation("AuditActor")
+  notifications    Notification[]
+
+  assignments          ShiftAssignment[]
+  coverageFrom         CoverageRequest[] @relation("CoverageFrom")
+  coverageTo           CoverageRequest[] @relation("CoverageTo")
+  coverageDecisions    CoverageRequest[] @relation("CoverageDecidedBy")
+  publishedWeeks       PublishedWeek[]   @relation("PublishedBy")
+  notificationPrefs    NotificationPreference?
+  clockEvents          ClockEvent[]
+  simulatedEmails      SimulatedEmail[]
+
+  staffSkills            StaffSkill[]
+  staffLocationCerts     StaffLocationCert[]
+  availabilityRecurring  AvailabilityRecurring[]
+  availabilityExceptions AvailabilityException[]
+}
+
+/// Staff-only fields; managers/admins may not have this row
+model StaffProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Target hours / week for fairness (not enforced as hard constraint)
+  desiredHoursWeekly Float @default(32)
+
+  /// Recurring availability windows are interpreted in this IANA timezone
+  availabilityTimezone String @default("America/Los_Angeles")
+
+  hourlyRateCents Int @default(2000)
+}
+
+model ManagerLocation {
+  userId     String
+  locationId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, locationId])
+}
+
+model Location {
+  id       String @id @default(cuid())
+  name     String
+  code     String @unique
+  timezone String
+
+  shifts               Shift[]
+  managerLocations     ManagerLocation[]
+  staffCerts           StaffLocationCert[]
+  publishedWeeks       PublishedWeek[]
+}
+
+model Skill {
+  id    String @id @default(cuid())
+  name  String @unique
+  shifts Shift[]
+  staff  StaffSkill[]
+}
+
+model StaffSkill {
+  userId  String
+  skillId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skillId])
+}
+
+model StaffLocationCert {
+  userId     String
+  locationId String
+  active     Boolean @default(true)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, locationId])
+}
+
+/// 0 = Sunday ... 6 = Saturday; times are minutes from midnight in staff availabilityTimezone
+model AvailabilityRecurring {
+  id          String @id @default(cuid())
+  userId      String
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Calendar date in staff availability timezone (store as UTC noon that day to avoid DST date skew)
+model AvailabilityException {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime @db.Date
+  /// false = unavailable whole day; true = use window below
+  available   Boolean
+  startMinute Int?
+  endMinute   Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model Shift {
+  id               String   @id @default(cuid())
+  locationId       String
+  startUtc         DateTime
+  endUtc           DateTime
+  requiredSkillId  String
+  headcount        Int      @default(1)
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  location      Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  requiredSkill Skill    @relation(fields: [requiredSkillId], references: [id], onDelete: Restrict)
+
+  assignments ShiftAssignment[]
+
+  @@index([locationId, startUtc])
+}
+
+model ShiftAssignment {
+  id        String @id @default(cuid())
+  shiftId   String
+  userId    String
+  version   Int    @default(0)
+  createdAt DateTime @default(now())
+
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  coverageRequests CoverageRequest[]
+
+  clockEvents ClockEvent[]
+
+  @@unique([shiftId, userId])
+  @@index([userId])
+}
+
+/// Monday date of the calendar week in the location's timezone
+model PublishedWeek {
+  id          String   @id @default(cuid())
+  locationId  String
+  weekMonday  DateTime @db.Date
+  publishedAt DateTime @default(now())
+  publishedBy String
+
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  publisher User    @relation("PublishedBy", fields: [publishedBy], references: [id])
+
+  @@unique([locationId, weekMonday])
+}
+
+model CoverageRequest {
+  id             String          @id @default(cuid())
+  kind           CoverageKind
+  status         CoverageStatus  @default(AWAITING_PEER)
+  assignmentId   String
+  fromUserId     String
+  toUserId       String?
+  peerAcceptedAt DateTime?
+  managerNote    String?
+  decidedAt      DateTime?
+  decidedById    String?
+  expiresAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  assignment ShiftAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  fromUser   User            @relation("CoverageFrom", fields: [fromUserId], references: [id])
+  toUser     User?           @relation("CoverageTo", fields: [toUserId], references: [id])
+  decidedBy  User?           @relation("CoverageDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([assignmentId])
+  @@index([fromUserId, status])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  entityType String
+  entityId   String
+  action     String
+  before     Json?
+  after      Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  actor User @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model NotificationPreference {
+  userId             String  @id
+  inAppEnabled       Boolean @default(true)
+  emailSimEnabled    Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SimulatedEmail {
+  id        String   @id @default(cuid())
+  userId    String
+  subject   String
+  body      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ClockEvent {
+  id           String    @id @default(cuid())
+  userId       String
+  assignmentId String
+  clockInUtc   DateTime
+  clockOutUtc  DateTime?
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment ShiftAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+}
+
+model OrganizationSettings {
+  id                    String  @id @default("singleton")
+  editCutoffHoursBefore Float   @default(48)
+}
