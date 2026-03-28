@@ -457,9 +457,7 @@ async function main() {
         assignmentId: mariaAssign.id,
         fromUserId: maria.id,
         toUserId: null,
-        expiresAt: DateTime.fromJSDate(mariaAssign.shift.startUtc, { zone: "utc" })
-          .minus({ hours: 24 })
-          .toJSDate(),
+        expiresAt: mariaAssign.shift.startUtc,
       },
     });
   }

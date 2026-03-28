@@ -57,9 +57,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const expireAt = DateTime.fromJSDate(assignment.shift.startUtc, { zone: "utc" }).minus({
-    hours: 24,
-  });
+  const shiftStart = DateTime.fromJSDate(assignment.shift.startUtc, { zone: "utc" });
+  const shiftEnd = DateTime.fromJSDate(assignment.shift.endUtc, { zone: "utc" });
+  const now = DateTime.utc();
+
+  // Drops stay open until shift start so last-minute callouts (e.g. 1h before) can still be picked up.
+  if (kind === "DROP") {
+    if (now >= shiftEnd) {
+      return NextResponse.json({ error: "This shift has already ended; ask a manager to adjust the schedule." }, { status: 400 });
+    }
+  }
+
+  const expireAtDrop = shiftStart;
 
   if (kind === "SWAP" && toUserId) {
     const check = await validateAssignment(prisma, { shiftId: assignment.shiftId, userId: toUserId });
@@ -79,7 +88,7 @@ export async function POST(req: Request) {
       toUserId: toUserId ?? null,
       status:
         kind === "DROP" ? CoverageStatus.AWAITING_PEER : CoverageStatus.AWAITING_PEER,
-      expiresAt: kind === "DROP" ? expireAt.toJSDate() : null,
+      expiresAt: kind === "DROP" ? expireAtDrop.toJSDate() : null,
     },
   });
 
