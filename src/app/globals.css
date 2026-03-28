@@ -1,7 +1,10 @@
-@import "tailwindcss";
+/* Anchor scanning to `src/` (relative to this file), not process CWD — fixes
+   missing utilities when Next/PostCSS runs from a parent directory or monorepo root. */
+@import "tailwindcss" source("..");
 
-/* Tell Tailwind v4 where to find class names (required for reliable builds). */
-@source "../**/*.{js,ts,jsx,tsx,mdx}";
+/* Explicit globs so App Router segments like `[id]` are included (glob edge cases). */
+@source "../app/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../lib/**/*.{js,ts,jsx,tsx,mdx}";
 
 :root {
   --background: #ffffff;

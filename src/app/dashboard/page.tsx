@@ -34,6 +34,9 @@ export default async function DashboardPage() {
             <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/live">
               On duty
             </Link>
+            <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/notifications">
+              Notifications
+            </Link>
             <form action={logoutAction}>
               <button
                 type="submit"
