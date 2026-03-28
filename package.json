@@ -6,6 +6,7 @@
     "clean": "rm -rf .next",
     "dev": "next dev",
     "build": "next build",
+    "build:vercel": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "prisma generate",

@@ -1,5 +1,7 @@
 # ShiftSync
 
+**Live demo:** [https://shift-sync-silk.vercel.app/dashboard](https://shift-sync-silk.vercel.app/dashboard)
+
 Web scheduling for the fictional **Coastal Eats** restaurant group (four sites, two US time zones). Take-home stack: **Next.js 15**, **Prisma 5**, **PostgreSQL**, **Luxon** for time zones.
 
 Repository: [github.com/Rehmatqadir26/ShiftSync](https://github.com/Rehmatqadir26/ShiftSync)
@@ -18,7 +20,7 @@ Repository: [github.com/Rehmatqadir26/ShiftSync](https://github.com/Rehmatqadir2
    CREATE DATABASE shiftsync;
    ```
 
-2. Copy env and set **`DATABASE_URL`** to match your user, password, host, port, and database name. Copy `SESSION_SECRET` from the example and replace with 16+ random characters. Keep `.env` in the **project root** so `npm run db:seed` can read it (Next.js and the seed script both use it).
+2. Copy env and set **`DATABASE_URL`** and **`DIRECT_URL`** (use the same local Postgres URL for both). Copy `SESSION_SECRET` from the example and replace with 16+ random characters. Keep `.env` in the **project root** so `npm run db:seed` can read it (Next.js and the seed script both use it).
 
    ```bash
    cp .env.example .env
@@ -58,7 +60,7 @@ Password for **every** seeded user: `password`
 - **Assignment rules**: no overlap across sites, **10h** rest, skill + active certification + **availability** (wall clock in the staff profile timezone), weekly/daily/consecutive-day labour hints and **12h daily hard block** / **7th day** manager reason.
 - **Publish**: per-location published week; staff mostly see published schedules (plus their own assignments anytime).
 - **Cutoff**: edits blocked inside **48h** of shift start (configurable on `OrganizationSettings`).
-- **Swap / drop**: staff create requests; swap needs peer accept; manager approves; reassignment runs the same validator; **shift time change** cancels pending coverage with notifications; **three** open requests per staff cap; **drops expire** at T−24h.
+- **Swap / drop**: staff create requests; swap needs peer accept; manager approves; reassignment runs the same validator; **shift time change** cancels pending coverage with notifications; **three** open requests per staff cap; **drops** can be claimed until **shift start** (last-minute callouts supported).
 - **Realtime**: in-memory **SSE** (`/api/stream`) for notifications, schedule updates, coverage activity, and clock events (single-server friendly; use Redis pub/sub to scale horizontally).
 - **Fairness / OT**: dashboards under **Fairness** (`/api/analytics/*`).
 - **Audit**: admin **Audit** page + CSV export (`/api/audit`, `/api/audit/export`).
@@ -77,4 +79,10 @@ Password for **every** seeded user: `password`
 
 ## Deploy
 
-Set `DATABASE_URL` and `SESSION_SECRET` on your host. Run `prisma migrate deploy` and `npm run build && npm start`. Use a managed Postgres (Neon, RDS, etc.) in production if you prefer.
+**Vercel (recommended):** step-by-step guide → [`docs/VERCEL.md`](docs/VERCEL.md). Summary:
+
+- Set **`DATABASE_URL`**, **`DIRECT_URL`**, and **`SESSION_SECRET`** in the Vercel project (Neon: pooled + direct strings; local/single URL: duplicate the same value).
+- Use **Build Command** `npm run build:vercel` so migrations run on deploy.
+- Run **`npm run db:seed` once** against production (see guide) to load demo data.
+
+**Any Node host:** `prisma migrate deploy`, then `npm run build && npm start`. Use managed Postgres (Neon, RDS, etc.) in production.
