@@ -11,9 +11,11 @@ type ShiftRow = {
   displayEnd: string | null;
   published: boolean;
   location: Loc;
-  requiredSkill: { name: string };
+  requiredSkill: { id: string; name: string };
   assignments: { id: string; user: { id: string; name: string } }[];
 };
+
+type SkillOpt = { id: string; name: string };
 
 type StaffRow = { id: string; name: string };
 
@@ -28,6 +30,13 @@ export function ScheduleBoard() {
   const [suggestions, setSuggestions] = useState<{ id: string; name: string }[]>([]);
   const [pickShift, setPickShift] = useState<string | null>(null);
   const [pickUser, setPickUser] = useState("");
+  const [skills, setSkills] = useState<SkillOpt[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createStart, setCreateStart] = useState("");
+  const [createEnd, setCreateEnd] = useState("");
+  const [createSkillId, setCreateSkillId] = useState("");
+  const [createHeadcount, setCreateHeadcount] = useState(1);
+  const [createNotes, setCreateNotes] = useState("");
 
   const load = useCallback(async () => {
     const me = await fetch("/api/auth/me").then((r) => r.json());
@@ -37,6 +46,10 @@ export function ScheduleBoard() {
     setLocations(ls.locations ?? []);
     const first = ls.locations?.[0]?.id ?? "";
     setLocId((prev) => prev || first);
+    if (me.user?.role === "ADMIN" || me.user?.role === "MANAGER") {
+      const sk = await fetch("/api/skills").then((r) => r.json());
+      setSkills(sk.skills ?? []);
+    }
   }, []);
 
   useEffect(() => {
@@ -78,8 +91,14 @@ export function ScheduleBoard() {
     setShifts(d.shifts ?? []);
   }
 
+  function referenceUtcForWeekAction(): string {
+    const fromRow = shifts[0]?.displayStart;
+    if (fromRow) return new Date(fromRow).toISOString();
+    return new Date().toISOString();
+  }
+
   async function publishWeek() {
-    const ref = shifts[0]?.displayStart ?? new Date().toISOString();
+    const ref = referenceUtcForWeekAction();
     const res = await fetch(`/api/locations/${locId}/publish-week`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,7 +106,59 @@ export function ScheduleBoard() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) setMessage(data.error ?? "Publish failed");
-    else setMessage("Published week");
+    else {
+      setMessage("Published week");
+      const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
+      setShifts(d.shifts ?? []);
+    }
+  }
+
+  async function unpublishWeek() {
+    const ref = referenceUtcForWeekAction();
+    const res = await fetch(`/api/locations/${locId}/publish-week`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referenceUtc: ref }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) setMessage(data.error ?? "Unpublish failed");
+    else {
+      setMessage("Week is no longer published (draft again)");
+      const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
+      setShifts(d.shifts ?? []);
+    }
+  }
+
+  async function createShift() {
+    if (!locId || !createSkillId || !createStart || !createEnd) {
+      setMessage("Fill start, end, and skill");
+      return;
+    }
+    const startUtc = new Date(createStart).toISOString();
+    const endUtc = new Date(createEnd).toISOString();
+    setMessage(null);
+    const res = await fetch("/api/shifts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locationId: locId,
+        startUtc,
+        endUtc,
+        requiredSkillId: createSkillId,
+        headcount: createHeadcount,
+        notes: createNotes.trim() || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error ?? "Could not create shift");
+      return;
+    }
+    setMessage("Shift created");
+    setShowCreate(false);
+    setCreateNotes("");
+    const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
+    setShifts(d.shifts ?? []);
   }
 
   const canManage = role === "ADMIN" || role === "MANAGER";
@@ -110,15 +181,37 @@ export function ScheduleBoard() {
           </select>
         </div>
         {canManage ? (
-          <button
-            type="button"
-            onClick={() => void publishWeek()}
-            className="rounded-lg border border-amber-500/50 px-3 py-2 text-sm text-amber-200 hover:bg-amber-500/10"
-          >
-            Publish this week
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+            >
+              New shift
+            </button>
+            <button
+              type="button"
+              onClick={() => void publishWeek()}
+              className="rounded-lg border border-amber-500/50 px-3 py-2 text-sm text-amber-200 hover:bg-amber-500/10"
+            >
+              Publish this week
+            </button>
+            <button
+              type="button"
+              onClick={() => void unpublishWeek()}
+              className="rounded-lg border border-zinc-600 px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
+            >
+              Unpublish this week
+            </button>
+          </>
         ) : null}
       </div>
+      {canManage ? (
+        <p className="text-xs text-zinc-500">
+          Publish / unpublish use the week of the first listed shift (or today if empty). Times for new shifts use
+          your browser&apos;s local timezone and are stored in UTC.
+        </p>
+      ) : null}
 
       {message ? <p className="text-sm text-amber-200/90">{message}</p> : null}
       {violations.length > 0 ? (
@@ -202,6 +295,90 @@ export function ScheduleBoard() {
           </tbody>
         </table>
       </div>
+
+      {showCreate && canManage ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-white">New shift</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Start and end in your local time; overnight shifts are allowed (end after start on the same or next
+              calendar day).
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs text-zinc-500">Start</label>
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  value={createStart}
+                  onChange={(e) => setCreateStart(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500">End</label>
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  value={createEnd}
+                  onChange={(e) => setCreateEnd(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500">Required skill</label>
+                <select
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                  value={createSkillId}
+                  onChange={(e) => setCreateSkillId(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {skills.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500">Headcount</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                  value={createHeadcount}
+                  onChange={(e) => setCreateHeadcount(Number(e.target.value) || 1)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500">Notes (optional)</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                  value={createNotes}
+                  onChange={(e) => setCreateNotes(e.target.value)}
+                  placeholder="e.g. VIP room"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+                onClick={() => setShowCreate(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-zinc-900"
+                onClick={() => void createShift()}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pickShift && canManage ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
