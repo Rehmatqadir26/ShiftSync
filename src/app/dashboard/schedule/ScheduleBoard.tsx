@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Loc = { id: string; name: string; code: string; timezone: string };
 type ShiftRow = {
@@ -37,6 +37,11 @@ export function ScheduleBoard() {
   const [createSkillId, setCreateSkillId] = useState("");
   const [createHeadcount, setCreateHeadcount] = useState(1);
   const [createNotes, setCreateNotes] = useState("");
+  const [sseConnected, setSseConnected] = useState(false);
+  const [liveNotice, setLiveNotice] = useState<string | null>(null);
+  const liveNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Suppress “live” toast when SSE echoes a mutation we just made. */
+  const lastLocalScheduleMutationAt = useRef(0);
 
   const load = useCallback(async () => {
     const me = await fetch("/api/auth/me").then((r) => r.json());
@@ -57,15 +62,68 @@ export function ScheduleBoard() {
   }, [load]);
 
   useEffect(() => {
+    return () => {
+      if (liveNoticeTimer.current) clearTimeout(liveNoticeTimer.current);
+    };
+  }, []);
+
+  const reloadScheduleData = useCallback(
+    async (opts?: { fromSse?: boolean }) => {
+      if (!locId) return;
+      const [shiftsRes, staffRes] = await Promise.all([
+        fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`),
+        fetch(`/api/staff?locationId=${encodeURIComponent(locId)}`),
+      ]);
+      const shiftsJson = await shiftsRes.json().catch(() => ({}));
+      setShifts(shiftsJson.shifts ?? []);
+      if (staffRes.ok) {
+        const staffJson = await staffRes.json().catch(() => ({}));
+        setStaff(staffJson.staff ?? []);
+      } else {
+        setStaff([]);
+      }
+      if (opts?.fromSse && Date.now() - lastLocalScheduleMutationAt.current > 2000) {
+        if (liveNoticeTimer.current) clearTimeout(liveNoticeTimer.current);
+        setLiveNotice("Schedule updated (live)");
+        liveNoticeTimer.current = setTimeout(() => {
+          setLiveNotice(null);
+          liveNoticeTimer.current = null;
+        }, 4000);
+      }
+    },
+    [locId],
+  );
+
+  useEffect(() => {
     if (!locId) return;
-    void fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`)
-      .then((r) => r.json())
-      .then((d) => setShifts(d.shifts ?? []));
-    void fetch(`/api/staff?locationId=${encodeURIComponent(locId)}`)
-      .then((r) => (r.ok ? r.json() : { staff: [] }))
-      .then((d) => setStaff(d.staff ?? []))
-      .catch(() => setStaff([]));
-  }, [locId]);
+    void reloadScheduleData();
+  }, [locId, reloadScheduleData]);
+
+  useEffect(() => {
+    const es = new EventSource("/api/stream");
+    es.onopen = () => setSseConnected(true);
+    es.onerror = () => setSseConnected(false);
+
+    es.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data) as {
+          type?: string;
+          locationId?: string;
+        };
+        if (msg.type === "ping" || msg.type === "connected") return;
+        if (msg.type === "schedule_updated" && msg.locationId && msg.locationId === locId) {
+          void reloadScheduleData({ fromSse: true });
+        }
+      } catch {
+        /* ignore malformed */
+      }
+    };
+
+    return () => {
+      es.close();
+      setSseConnected(false);
+    };
+  }, [locId, reloadScheduleData]);
 
   async function assign() {
     if (!pickShift || !pickUser) return;
@@ -87,8 +145,8 @@ export function ScheduleBoard() {
     setMessage("Assigned");
     setPickShift(null);
     setPickUser("");
-    const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
-    setShifts(d.shifts ?? []);
+    lastLocalScheduleMutationAt.current = Date.now();
+    await reloadScheduleData();
   }
 
   function referenceUtcForWeekAction(): string {
@@ -108,8 +166,8 @@ export function ScheduleBoard() {
     if (!res.ok) setMessage(data.error ?? "Publish failed");
     else {
       setMessage("Published week");
-      const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
-      setShifts(d.shifts ?? []);
+      lastLocalScheduleMutationAt.current = Date.now();
+      await reloadScheduleData();
     }
   }
 
@@ -124,8 +182,8 @@ export function ScheduleBoard() {
     if (!res.ok) setMessage(data.error ?? "Unpublish failed");
     else {
       setMessage("Week is no longer published (draft again)");
-      const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
-      setShifts(d.shifts ?? []);
+      lastLocalScheduleMutationAt.current = Date.now();
+      await reloadScheduleData();
     }
   }
 
@@ -157,15 +215,16 @@ export function ScheduleBoard() {
     setMessage("Shift created");
     setShowCreate(false);
     setCreateNotes("");
-    const d = await fetch(`/api/shifts?locationId=${encodeURIComponent(locId)}`).then((r) => r.json());
-    setShifts(d.shifts ?? []);
+    lastLocalScheduleMutationAt.current = Date.now();
+    await reloadScheduleData();
   }
 
   const canManage = role === "ADMIN" || role === "MANAGER";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-end gap-4">
         <div>
           <label className="block text-xs text-zinc-500">Location</label>
           <select
@@ -205,7 +264,23 @@ export function ScheduleBoard() {
             </button>
           </>
         ) : null}
+        </div>
+        <div
+          className="flex items-center gap-2 text-xs text-zinc-500"
+          title="Refreshes when shifts change (assignments, publish, edits) via server push"
+        >
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${sseConnected ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-zinc-600"}`}
+            aria-hidden
+          />
+          <span>{sseConnected ? "Live updates on" : "Connecting…"}</span>
+        </div>
       </div>
+      {liveNotice ? (
+        <p className="rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200/90">
+          {liveNotice}
+        </p>
+      ) : null}
       {canManage ? (
         <p className="text-xs text-zinc-500">
           Publish / unpublish use the week of the first listed shift (or today if empty). Times for new shifts use
