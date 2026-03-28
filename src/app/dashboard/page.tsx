@@ -34,6 +34,11 @@ export default async function DashboardPage() {
             <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/live">
               On duty
             </Link>
+            {session.role === "STAFF" ? (
+              <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/profile">
+                Profile
+              </Link>
+            ) : null}
             <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/notifications">
               Notifications
             </Link>
@@ -55,8 +60,11 @@ export default async function DashboardPage() {
       </header>
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-10">
         <p className="text-zinc-400">
-          Pick a section above. The schedule board is where managers assign staff with rule checks and
-          suggested backups when someone does not fit.
+          Use <strong className="font-medium text-zinc-300">Schedule</strong> for assignments (with optional dry-run
+          check), <strong className="font-medium text-zinc-300">Fairness</strong> for labor analytics,{" "}
+          <strong className="font-medium text-zinc-300">Requests</strong> for swaps/drops, and{" "}
+          <strong className="font-medium text-zinc-300">On duty</strong> for live clock-ins. Staff can edit{" "}
+          <strong className="font-medium text-zinc-300">Profile</strong> availability and preferences.
         </p>
       </main>
     </div>

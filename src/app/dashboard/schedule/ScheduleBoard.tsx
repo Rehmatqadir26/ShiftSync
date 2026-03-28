@@ -42,6 +42,8 @@ export function ScheduleBoard() {
   const liveNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Suppress “live” toast when SSE echoes a mutation we just made. */
   const lastLocalScheduleMutationAt = useRef(0);
+  const [previewWarnings, setPreviewWarnings] = useState<{ message?: string }[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const load = useCallback(async () => {
     const me = await fetch("/api/auth/me").then((r) => r.json());
@@ -125,11 +127,52 @@ export function ScheduleBoard() {
     };
   }, [locId, reloadScheduleData]);
 
+  async function previewAssign() {
+    if (!pickShift || !pickUser) return;
+    setMessage(null);
+    setViolations([]);
+    setSuggestions([]);
+    setPreviewWarnings([]);
+    setPreviewLoading(true);
+    const res = await fetch(`/api/shifts/${pickShift}/assign/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: pickUser }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setPreviewLoading(false);
+    if (!res.ok) {
+      setMessage(data.error ?? "Preview failed");
+      return;
+    }
+    if (!data.ok) {
+      if (data.full) {
+        setMessage(data.error ?? "Shift is full");
+        return;
+      }
+      if (Array.isArray(data.violations) && data.violations.length > 0) {
+        setViolations(data.violations ?? []);
+        setSuggestions(data.suggestions ?? []);
+        setMessage("Rules block this assignment (dry run)");
+        return;
+      }
+      setMessage(typeof data.error === "string" ? data.error : "Cannot assign");
+      return;
+    }
+    setPreviewWarnings(data.warnings ?? []);
+    setMessage(
+      (data.warnings?.length ?? 0) > 0
+        ? "Preview OK — warnings below; click Assign to save."
+        : "Preview OK — click Assign to save.",
+    );
+  }
+
   async function assign() {
     if (!pickShift || !pickUser) return;
     setMessage(null);
     setViolations([]);
     setSuggestions([]);
+    setPreviewWarnings([]);
     const res = await fetch(`/api/shifts/${pickShift}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -145,6 +188,7 @@ export function ScheduleBoard() {
     setMessage("Assigned");
     setPickShift(null);
     setPickUser("");
+    setPreviewWarnings([]);
     lastLocalScheduleMutationAt.current = Date.now();
     await reloadScheduleData();
   }
@@ -459,11 +503,16 @@ export function ScheduleBoard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
             <h3 className="text-lg font-medium text-white">Assign staff</h3>
-            <p className="mt-1 text-xs text-zinc-500">Runs every scheduling rule before saving.</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Use <strong className="text-zinc-400">Check fit</strong> to run a dry run without saving.
+            </p>
             <select
               className="mt-4 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
               value={pickUser}
-              onChange={(e) => setPickUser(e.target.value)}
+              onChange={(e) => {
+                setPickUser(e.target.value);
+                setPreviewWarnings([]);
+              }}
             >
               <option value="">Select…</option>
               {staff.map((u) => (
@@ -472,13 +521,34 @@ export function ScheduleBoard() {
                 </option>
               ))}
             </select>
-            <div className="mt-4 flex justify-end gap-2">
+            {previewWarnings.length > 0 ? (
+              <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/25 p-3 text-xs text-amber-100/90">
+                <p className="font-medium text-amber-200">Warnings (still assignable)</p>
+                <ul className="mt-2 list-inside list-disc">
+                  {previewWarnings.map((w, i) => (
+                    <li key={i}>{w.message ?? JSON.stringify(w)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-                onClick={() => setPickShift(null)}
+                onClick={() => {
+                  setPickShift(null);
+                  setPreviewWarnings([]);
+                }}
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                disabled={!pickUser || previewLoading}
+                onClick={() => void previewAssign()}
+              >
+                {previewLoading ? "Checking…" : "Check fit"}
               </button>
               <button
                 type="button"
@@ -486,7 +556,7 @@ export function ScheduleBoard() {
                 disabled={!pickUser}
                 onClick={() => void assign()}
               >
-                Save
+                Assign
               </button>
             </div>
           </div>

@@ -59,10 +59,13 @@ Password for **every** seeded user: `password`
 - **Publish**: per-location published week; staff mostly see published schedules (plus their own assignments anytime).
 - **Cutoff**: edits blocked inside **48h** of shift start (configurable on `OrganizationSettings`).
 - **Swap / drop**: staff create requests; swap needs peer accept; manager approves; reassignment runs the same validator; **shift time change** cancels pending coverage with notifications; **three** open requests per staff cap; **drops expire** at T−24h.
-- **Realtime**: in-memory **SSE** (`/api/stream`) for notifications and schedule pulses (fine for a single server; use Redis pub/sub for horizontal scale).
-- **Fairness / OT**: JSON reports under **Fairness** and `/api/analytics/*`.
-- **Audit**: `AuditLog` rows on assigns and shift updates; admin-scale export is left as a thin follow-up over the same table.
-- **Clock**: `/api/clock` + **On duty** page for a live-ish view.
+- **Realtime**: in-memory **SSE** (`/api/stream`) for notifications, schedule updates, coverage activity, and clock events (single-server friendly; use Redis pub/sub to scale horizontally).
+- **Fairness / OT**: dashboards under **Fairness** (`/api/analytics/*`).
+- **Audit**: admin **Audit** page + CSV export (`/api/audit`, `/api/audit/export`).
+- **Clock**: `/api/clock` + **On duty** dashboard (live list + SSE refresh).
+- **Schedule**: managers get **live** board refresh on `schedule_updated`; **Assign** supports **Check fit** (dry-run via `/api/shifts/.../assign/preview`).
+- **Staff profile**: `/dashboard/profile` + `/api/me/profile` and **PUT** `/api/me/availability/recurring` for desired hours, rate, timezone, weekly windows.
+- **Requests**: coverage list UI with status badges, shift context, manager approve/deny, SSE refresh.
 
 ## Ambiguity choices (short)
 
