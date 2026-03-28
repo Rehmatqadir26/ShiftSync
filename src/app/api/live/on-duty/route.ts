@@ -31,8 +31,9 @@ export async function GET(req: Request) {
       id: e.id,
       user: e.user,
       location: e.assignment.shift.location,
-      clockInUtc: e.clockInUtc,
-      shiftStart: e.assignment.shift.startUtc,
+      clockInUtc: e.clockInUtc.toISOString(),
+      shiftStart: e.assignment.shift.startUtc.toISOString(),
+      shiftEnd: e.assignment.shift.endUtc.toISOString(),
     })),
   });
 }
