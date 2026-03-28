@@ -37,6 +37,11 @@ export default async function DashboardPage() {
             <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/notifications">
               Notifications
             </Link>
+            {session.role === "ADMIN" ? (
+              <Link className="rounded-lg px-3 py-1.5 text-zinc-300 hover:bg-zinc-800" href="/dashboard/audit">
+                Audit
+              </Link>
+            ) : null}
             <form action={logoutAction}>
               <button
                 type="submit"
